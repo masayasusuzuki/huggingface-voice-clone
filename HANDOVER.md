@@ -142,6 +142,7 @@ hf jobs cancel <JOB_ID>    # キャンセル
 
 ## 参考リンク
 
+- Notion（実験ログ・経緯）: https://polyester-glue-2fb.notion.site/Voice-Clone-34b6a178a713802e9916dce881c4b729
 - HF Billing: https://huggingface.co/settings/billing
 - Dataset: https://huggingface.co/datasets/masayasu/ryuken-voice
 - Model: https://huggingface.co/masayasu/ryuken-voice-lora
