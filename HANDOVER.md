@@ -34,24 +34,49 @@
 4. API トークン発行: https://huggingface.co/settings/tokens
    - **Write 権限必須**。名前は任意（例: `cli`）
 
-## アカウントにあるもの
+## アカウントにあるもの（現在の状態）
 
-| リポジトリ | 種類 | 中身 |
+### masayasu/ryuken-voice（Dataset / Private）
+
+学習データと推論スクリプトと生成結果が入っています。
+
+| 中身 | 説明 |
+|---|---|
+| `raw/sample_16k_mono.flac` | 元音声（16kHz mono FLAC、228MB） |
+| `segments/` | 学習用音声セグメント（2008個） |
+| `manifest.jsonl` | 全セグメントのパス・書き起こし・秒数 |
+| `inference_tests/` | 推論テスト結果（68ファイル、さまざまなseed/パラメータのサンプル） |
+| `jobs/test_inference.py` | 推論ジョブスクリプト |
+| `jobs/train_lora.py` | 学習ジョブスクリプト |
+
+### masayasu/ryuken-voice-lora（Model / Private）
+
+学習済みの LoRA 重み。以下の2つの学習ランがあります。
+
+| ラン名 | iter数 | 説明 |
 |---|---|---|
-| `masayasu/ryuken-voice` | Dataset (Private) | 学習用音声セグメント、ジョブスクリプト、推論結果 |
-| `masayasu/ryuken-voice-lora` | Model (Private) | 学習済みLoRA重み（5000iter） |
-| `masayasu/voxcpm-personal` | Space (Private) | 推論UI（現在停止中） |
+| `ryuken-lora-test/` | 500 | 動作確認用のテスト学習 |
+| `ryuken-lora-full-5k/` | 5000 | 本番学習（現在使うのはこちら） |
 
-学習済みの声は **やまもとりゅうけん氏** のものです。別の声をクローンしたい場合は新しく学習データを用意して学習し直す必要があります。
+各ランに step ごとのチェックポイントと `latest/`（最終stepのコピー）があります。
+推論時は `ryuken-lora-full-5k` の `latest` を使います。
+
+### masayasu/voxcpm-personal（Space / Private）
+
+推論 UI（Gradio）。現在は停止中です。必要に応じて起動してください。
 
 ## 必要なもの
 
-- Python 3.11+
-- HuggingFace CLI: `pip install huggingface_hub[cli]`
-- 認証: `hf auth login --token hf_あなたのトークン`
-- 元音声ファイル（新しく学習する場合のみ）
+手元の PC に必要なのは HuggingFace CLI だけです。Python や GPU は不要です（すべて HF のクラウド上で実行されます）。
 
-## 推論の実行（既存のりゅうけんボイスでテキスト読み上げ）
+```bash
+pip install huggingface_hub[cli]
+hf auth login --token hf_あなたのトークン
+```
+
+## 使い方：テキストから音声を生成する
+
+以下のコマンドを実行するだけです。HF Jobs がクラウド上の L4 GPU で推論を実行し、結果を Dataset に自動保存します。
 
 ```bash
 hf jobs uv run \
@@ -70,6 +95,7 @@ hf jobs uv run \
 ```
 
 生成された音声は `masayasu/ryuken-voice` の `inference_tests/` に保存されます。
+所要時間は3〜5分、コストは1回あたり約$0.05です。
 
 ### パラメータの意味
 
@@ -83,12 +109,54 @@ hf jobs uv run \
 
 ### シードガチャのやり方
 
-同じテキストでも seed を変えると違う音声になります。
-`SEED=42` の部分を変えて複数回実行し、一番良いものを選んでください。
+同じテキストでも seed を変えると違う音声になります。`SEED=42` の部分を変えて複数回実行し、一番良いものを選んでください。
 
-## 新しい声を学習させる場合
+## ジョブ管理
 
-3ステップです。元音声は **3時間以上のクリアな発話** を推奨。
+```bash
+hf jobs ps -a              # 全ジョブ一覧
+hf jobs inspect <JOB_ID>   # ジョブ詳細
+hf jobs logs <JOB_ID>      # ログ確認
+hf jobs cancel <JOB_ID>    # キャンセル
+```
+
+## コスト目安（運用時）
+
+| 作業 | 時間 | コスト |
+|---|---|---|
+| 推論（1テキスト） | 3〜5分 | $0.05 |
+| Proプラン（月額） | - | $9.00 |
+
+## 技術スタック
+
+- ベースモデル: [OpenBMB/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)（Apache-2.0、商用可）
+- 学習手法: LoRA (Low-Rank Adaptation)
+- ASR: faster-whisper large-v3 + silero VAD
+- GPU: Nvidia L4（24GB VRAM）
+
+## 注意点
+
+- ジョブスクリプトを変更したら、必ず Dataset に再アップロードしてから実行してください
+- T4 GPU は非対応です（FlashAttention が使えない）。必ず L4 以上を指定してください
+- 短時間にジョブを大量投入するとレートリミットに引っかかります
+
+## 参考リンク
+
+- HF Billing: https://huggingface.co/settings/billing
+- Dataset: https://huggingface.co/datasets/masayasu/ryuken-voice
+- Model: https://huggingface.co/masayasu/ryuken-voice-lora
+- Space: https://huggingface.co/spaces/masayasu/voxcpm-personal
+- VoxCPM GitHub: https://github.com/OpenBMB/VoxCPM
+- HF Jobs CLI: https://huggingface.co/docs/huggingface_hub/en/guides/cli
+
+---
+
+## Appendix: 別の声を学習させる場合（参考）
+
+すでにりゅうけんさんの声は学習済みなので、通常はこのセクションは不要です。
+別の声を新規にクローンしたい場合の参考手順です。
+
+元音声は **3時間以上のクリアな発話** を推奨。
 
 ### Step 1: 元音声の前処理（ローカル）
 
@@ -96,21 +164,11 @@ hf jobs uv run \
 ffmpeg -y -i 元音声.wav -ac 1 -ar 16000 -c:a flac -compression_level 8 sample_16k_mono.flac
 ```
 
-### Step 2: データ準備（HF Job）
-
-前処理した FLAC を Dataset にアップロードしてから実行:
+### Step 2: 音声アップロード
 
 ```bash
 hf upload masayasu/ryuken-voice sample_16k_mono.flac raw/sample_16k_mono.flac --repo-type dataset
-
-hf jobs uv run \
-  --flavor l4x1 \
-  --secrets HF_TOKEN \
-  --timeout 2h -d \
-  "https://huggingface.co/datasets/masayasu/ryuken-voice/resolve/main/jobs/prepare_data.py"
 ```
-
-所要: 約50分 / コスト: 約$0.65
 
 ### Step 3: LoRA学習（HF Job）
 
@@ -129,44 +187,3 @@ hf jobs uv run \
 
 学習後は `masayasu/ryuken-voice-lora/my-new-voice/` に LoRA 重みが保存されます。
 推論時は `RUN_NAME=my-new-voice` に変更してください。
-
-## ジョブ管理コマンド
-
-```bash
-hf jobs ps -a              # 全ジョブ一覧
-hf jobs inspect <JOB_ID>   # ジョブ詳細
-hf jobs logs <JOB_ID>      # ログ確認
-hf jobs cancel <JOB_ID>    # キャンセル
-```
-
-## コスト目安
-
-| 作業 | 時間 | コスト |
-|---|---|---|
-| データ準備 | 50分 | $0.65 |
-| LoRA学習（5000iter） | 3時間 | $2.40 |
-| 推論（1テキスト） | 3〜5分 | $0.05 |
-| Proプラン（月額） | - | $9.00 |
-
-## 技術スタック
-
-- ベースモデル: [OpenBMB/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)（Apache-2.0、商用可）
-- 学習手法: LoRA (Low-Rank Adaptation)
-- ASR: faster-whisper large-v3 + silero VAD
-- GPU: Nvidia L4（24GB VRAM）
-
-## 注意点
-
-- ジョブスクリプトを変更したら、必ず Dataset に再アップロードしてから実行してください
-- T4 GPU は非対応です（FlashAttention が使えない）。必ず L4 以上を指定してください
-- 短時間にジョブを大量投入するとレートリミットに引っかかります
-- 学習データの権利・同意は自己責任で確認してください
-
-## 参考リンク
-
-- HF Billing: https://huggingface.co/settings/billing
-- Dataset: https://huggingface.co/datasets/masayasu/ryuken-voice
-- Model: https://huggingface.co/masayasu/ryuken-voice-lora
-- Space: https://huggingface.co/spaces/masayasu/voxcpm-personal
-- VoxCPM GitHub: https://github.com/OpenBMB/VoxCPM
-- HF Jobs CLI: https://huggingface.co/docs/huggingface_hub/en/guides/cli
